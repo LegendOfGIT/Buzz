@@ -2,6 +2,7 @@
 
 namespace Buzz;
 
+use Buzz\Client\BatchClientInterface;
 use Buzz\Client\ClientInterface;
 use Buzz\Client\FileGetContents;
 use Buzz\Listener\ListenerChain;
@@ -164,8 +165,14 @@ class Browser
      */
     public function sendRequest(Psr7RequestInterface $request)
     {
-        $chain = $this->createMiddlewareChain($this->middlewares, function(Psr7RequestInterface $request) {
-            return $this->client->sendRequest($request);
+        $chain = $this->createMiddlewareChain($this->middlewares, function(Psr7RequestInterface $request, callable $responseChain) {
+            if ($this->client instanceof BatchClientInterface) {
+                // TODO make this check better.
+                $this->client->sendRequest($request, ['callback' => $responseChain]);
+            } else {
+                $response = $this->client->sendRequest($request);
+                $responseChain($request, $response);
+            }
         }, function (Psr7RequestInterface $request, Psr7ResponseInterface $response) {
             $this->lastRequest = $request;
             $this->lastResponse = $response;
@@ -200,8 +207,7 @@ class Browser
 
         $requestChainLast = function (Psr7RequestInterface $request) use ($requestChainLast, $responseChainNext) {
             // Send the actual request and get the response
-            $response = $requestChainLast($request);
-            $responseChainNext($request, $response);
+            $requestChainLast($request, $responseChainNext);
         };
 
         $middlewares = array_reverse($middlewares);
